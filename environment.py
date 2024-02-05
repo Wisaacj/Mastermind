@@ -5,6 +5,12 @@ from typing import Tuple, Dict, Deque
 from collections import deque
 
 
+class Space:
+
+    # TODO
+    pass
+
+
 class Code:
 
     code_length: int = 4
@@ -161,16 +167,20 @@ class Mastermind:
         self._reseed(seed)
         self.reset()
 
-    def reset(self) -> np.ndarray:
+        # FIXME
+        self.action_space = Code
+        self.observation_space = self.state
+
+    def reset(self) -> Tuple[np.ndarray, Dict]:
         self.attempts = 0
         self.state = State(self.history_length)
         self.secret_code: Code = Code.sample()
 
-        return self.state.encode()
+        return self.state.encode(), {}
     
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         if self.attempts == self.max_attempts:
-            return self.state.encode(), 0, True, {}
+            return self.state.encode(), 0, True, True, {}
         
         guess = Code.from_index(action)
         feedback = Feedback(self.secret_code, guess)
@@ -181,7 +191,7 @@ class Mastermind:
         reward = self.reward(feedback)
         done = feedback.black_pegs == self.code_length or self.attempts >= self.max_attempts
 
-        return self.state.encode(), reward, done, {}
+        return self.state.encode(), reward, done, done, {}
 
     def reward(self, feedback: Feedback) -> float:
         if feedback.black_pegs == self.code_length:
@@ -197,13 +207,8 @@ class Mastermind:
 
         self.state.render()
 
-    @property
-    def action_space(self) -> int:
-        return Code.code_space
-    
-    @property
-    def state_shape(self) -> Tuple[int]:
-        return self.state.shape
+    def close(self):
+        pass
 
     def _reseed(self, seed: int):
         """
