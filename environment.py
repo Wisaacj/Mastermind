@@ -52,7 +52,7 @@ class Code:
         """
         Returns a 1-hot encoded vector representation of the code.
         """
-        code_vector = np.zeros(self.num_colours*self.code_length)
+        code_vector = np.zeros(self.num_colours*self.code_length, dtype=np.float32)
 
         for pos, val in enumerate(self.code):
             colour_index = int(val)
@@ -89,7 +89,7 @@ class Feedback:
         """
         Returns a 2D vector (black pegs, white pegs).
         """
-        return np.array([self.black_pegs, self.white_pegs])
+        return np.array([self.black_pegs, self.white_pegs], dtype=np.float32)
 
 
 class Observation:
@@ -109,7 +109,7 @@ class Observation:
         of the guess and the final two elements detail the feedback given (black pegs, 
         white pegs).
         """
-        return np.concatenate([self.guess.as_vector(), self.feedback.as_vector()])
+        return np.concatenate([self.guess.as_vector(), self.feedback.as_vector()], dtype=np.float32)
 
 
 class State:
@@ -129,7 +129,7 @@ class State:
         """
         Encodes the current state into a fixed-sized numerical vector.
         """
-        state_vector = np.zeros(self.shape)
+        state_vector = np.zeros(self.shape, dtype=np.float32)
 
         for i, obs in enumerate(self.history):
             state_vector[i] = obs.as_vector()
@@ -226,4 +226,3 @@ if __name__ == "__main__":
         env.step(guess.to_index())
         
     pass
-    

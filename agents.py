@@ -118,7 +118,7 @@ class BaseDQNAgent(BaseAgent):
 
         # FIXME
         self.obs_shape = env.observation_space.shape
-        self.action_dim = env.action_space.code_space
+        self.action_dim = env.action_space.code_space+1 # !!!
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
