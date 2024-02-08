@@ -11,7 +11,8 @@ class Code:
     code_length: int = 4
     num_colours: int = 6
     num_codes: int = num_colours ** code_length
-    vector_shape: int = num_colours * code_length
+    # vector_shape: int = num_colours * code_length
+    vector_shape: int = code_length
 
     def __init__(self, code: str):
         self.code = code
@@ -21,7 +22,8 @@ class Code:
         cls.code_length = code_length
         cls.num_colours = num_colours
         cls.num_codes = num_colours ** code_length
-        cls.vector_shape: int = num_colours * code_length
+        # cls.vector_shape = num_colours * code_length
+        cls.vector_shape = code_length
 
     @classmethod
     def from_index(cls: Self, index: int) -> Self:
@@ -45,16 +47,27 @@ class Code:
     def to_index(self) -> int:
         return int(self.code, base=self.num_colours)
     
+    # def as_vector(self) -> np.ndarray:
+    #     """
+    #     Returns a 1-hot encoded vector representation of the code.
+    #     """
+    #     code_vector = np.zeros(self.num_colours*self.code_length, dtype=np.float32)
+
+    #     for pos, val in enumerate(self.code):
+    #         colour_index = int(val)
+    #         code_vector[pos*self.num_colours + colour_index] = 1
+
+    #     return code_vector
+
     def as_vector(self) -> np.ndarray:
         """
-        Returns a 1-hot encoded vector representation of the code.
+        Returns a normalized numerical vector representation of the code.
         """
-        code_vector = np.zeros(self.num_colours*self.code_length, dtype=np.float32)
+        code_vector = np.zeros(self.code_length, dtype=np.float32)
 
         for pos, val in enumerate(self.code):
-            colour_index = int(val)
-            code_vector[pos*self.num_colours + colour_index] = 1
-
+            code_vector[pos] = int(val) / (self.num_colours - 1)
+            
         return code_vector
 
 
@@ -216,7 +229,7 @@ class Mastermind:
     def reset_spaces(self, seed: int):
         self.action_space = gym.spaces.Discrete(Code.num_codes, seed=seed)
         self.observation_space = gym.spaces.Box(
-            0, Code.code_length, self.state.vector_shape, dtype=np.int64, seed=seed)
+            0, Code.code_length, self.state.vector_shape, seed=seed)
 
     def set_seed(self, seed: int):
         """

@@ -358,9 +358,6 @@ class MlpDQNAgent(BaseDQNAgent):
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval()
 
-        print("Instantiating behavioural network...\n", self.dqn)
-        print("Instantiating target network...\n", self.dqn_target)
-
         # Optimiser
         self.optimiser = optim.Adam(self.dqn.parameters())
 
@@ -804,10 +801,11 @@ class MlpNoisyDQNAgent(MlpDQNAgent):
         # As we are using noisy networks, we do not use an epsilon-greedy policy for
         # action selection.
         flattened_state = state.flatten()
+        state_tensor = torch.FloatTensor(flattened_state)\
+                .unsqueeze(0)\
+                .to(self.device)
 
-        selected_action = self.dqn(
-            torch.Tensor(flattened_state).to(self.device)
-        ).argmax()
+        selected_action = self.dqn(state_tensor).argmax()
         selected_action = selected_action.detach().cpu().numpy()
 
         if not self.is_test:
