@@ -1,21 +1,17 @@
 import numpy as np
+import gymnasium as gym
 
 from typing_extensions import Self
 from typing import Tuple, Dict, Deque
 from collections import deque
 
 
-class Space:
-
-    # TODO
-    pass
-
-
 class Code:
 
     code_length: int = 4
     num_colours: int = 6
-    code_space: int = (num_colours ** code_length) - 1
+    num_codes: int = num_colours ** code_length
+    vector_shape: int = num_colours * code_length
 
     def __init__(self, code: str):
         self.code = code
@@ -24,7 +20,8 @@ class Code:
     def set_code_space(cls: Self, code_length: int, num_colours: int):
         cls.code_length = code_length
         cls.num_colours = num_colours
-        cls.code_space = (num_colours ** code_length) - 1
+        cls.num_codes = num_colours ** code_length
+        cls.vector_shape: int = num_colours * code_length
 
     @classmethod
     def from_index(cls: Self, index: int) -> Self:
@@ -43,7 +40,7 @@ class Code:
         """
         Randomly samples a code from the code space.
         """
-        return cls.from_index(np.random.randint(cls.code_space+1))
+        return cls.from_index(np.random.randint(cls.num_codes))
 
     def to_index(self) -> int:
         return int(self.code, base=self.num_colours)
@@ -62,6 +59,8 @@ class Code:
 
 
 class Feedback:
+
+    vector_shape: int = 2
     
     def __init__(self, secret: Code, guess: Code):
         self.black_pegs = 0
@@ -69,7 +68,7 @@ class Feedback:
 
         self._prepare_feedback(secret.code, guess.code)
 
-    def _prepare_feedback(self, secret: str, guess: str) -> Self:
+    def _prepare_feedback(self, secret: str, guess: str):
         secret_counts = [0] * Code.num_colours
         guess_counts = [0] * Code.num_colours
 
@@ -94,13 +93,15 @@ class Feedback:
 
 class Observation:
 
+    vector_shape: int = Code.vector_shape + Feedback.vector_shape
+
     def __init__(self, guess: Code, feedback: Feedback):
         self.guess = guess
         self.feedback = feedback
 
-    @staticmethod
-    def shape() -> int:
-        return (Code.num_colours * Code.code_length) + 2
+    @classmethod
+    def refresh_vector_shape(cls: Self):
+        cls.vector_shape = Code.vector_shape + Feedback.vector_shape
 
     def as_vector(self) -> np.ndarray:
         """
@@ -119,8 +120,8 @@ class State:
         self.history: Deque[Observation] = deque(maxlen=history_length)
 
     @property
-    def shape(self) -> Tuple[int]:
-        return (self.history_length, Observation.shape())
+    def vector_shape(self) -> Tuple[int]:
+        return (self.history_length, Observation.vector_shape)
 
     def add_observation(self, guess: Code, feedback: Feedback):
         self.history.append(Observation(guess, feedback))
@@ -129,7 +130,7 @@ class State:
         """
         Encodes the current state into a fixed-sized numerical vector.
         """
-        state_vector = np.zeros(self.shape, dtype=np.float32)
+        state_vector = np.zeros(self.vector_shape, dtype=np.float32)
 
         for i, obs in enumerate(self.history):
             state_vector[i] = obs.as_vector()
@@ -158,22 +159,20 @@ class Mastermind:
     ) -> Self:
         assert(0 < num_colours <= 9)
 
-        self.code_length = code_length
-        self.num_colours = num_colours
         self.max_attempts = max_attempts
         self.history_length = history_length
-        Code.set_code_space(code_length, num_colours)
+        self.configure_codes(code_length, num_colours)
 
-        self._reseed(seed)
-        self.reset()
+        self.reset(seed)
 
-        # FIXME
-        self.action_space = Code
-        self.observation_space = self.state
-
-    def reset(self) -> Tuple[np.ndarray, Dict]:
+    def reset(self, seed: int = None) -> Tuple[np.ndarray, Dict]:
         self.attempts = 0
         self.state = State(self.history_length)
+
+        if seed is not None:
+            self.set_seed(seed)
+            self.reset_spaces(seed)
+
         self.secret_code: Code = Code.sample()
 
         return self.state.encode(), {}
@@ -195,11 +194,11 @@ class Mastermind:
 
     def reward(self, feedback: Feedback) -> float:
         if feedback.black_pegs == self.code_length:
-            return 100 # Win reward
+            return 1 # Win reward
         else:
             return -1 # Penalty for incorrect guess
         
-    def render(self, reveal_secret: bool = False):
+    def render(self, reveal_secret: bool = True):
         print(f"Current Attempts: {self.attempts}")
 
         if reveal_secret:
@@ -207,22 +206,37 @@ class Mastermind:
 
         self.state.render()
 
-    def close(self):
-        pass
+    def configure_codes(self, code_length: int, num_colours: int):
+        self.code_length = code_length
+        self.num_colours = num_colours
 
-    def _reseed(self, seed: int):
+        Code.set_code_space(code_length, num_colours)
+        Observation.refresh_vector_shape()
+
+    def reset_spaces(self, seed: int):
+        self.action_space = gym.spaces.Discrete(Code.num_codes, seed=seed)
+        self.observation_space = gym.spaces.Box(
+            0, Code.code_length, self.state.vector_shape, dtype=np.int64, seed=seed)
+
+    def set_seed(self, seed: int):
         """
         Reseeds all random number generators.
         """
         self.seed = seed
         np.random.seed(seed)
 
+    def close(self):
+        """
+        To satisfy the pseudo abc.
+        """
+        pass
+
 
 if __name__ == "__main__":
     env = Mastermind()
 
     for i in range(10):
-        guess: Code = Code.sample()
-        env.step(guess.to_index())
+        guess = env.action_space.sample()
+        env.step(guess)
         
     pass

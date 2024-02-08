@@ -33,6 +33,40 @@ class Network(nn.Module):
         return self.layers(x)
     
 
+class DeeperNetwork(nn.Module):
+    
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+
+        self.model = nn.Sequential(
+            # Input layer
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),  # Dropout for regularization
+
+            # Hidden layer 1
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            # Hidden layer 2
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            
+            # Hidden layer 3
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            # Output layer
+            nn.Linear(128, output_dim)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
 class CNNNetwork(nn.Module):
 
     def __init__(self, input_shape: Tuple, out_dim: int):

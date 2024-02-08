@@ -15,7 +15,7 @@ from IPython.display import clear_output
 from abc import abstractmethod, ABC
 
 from buffers import ReplayBuffer, NStepReplayBuffer, PrioritisedReplayBuffer
-from networks import Network, DuelingNetwork, CategoricalNetwork, NoisyNetwork, RainbowNetwork
+from networks import *
 
 
 class BaseAgent(ABC):
@@ -118,7 +118,7 @@ class BaseDQNAgent(BaseAgent):
 
         # FIXME
         self.obs_shape = env.observation_space.shape
-        self.action_dim = env.action_space.code_space+1 # !!!
+        self.action_dim = env.action_space.n
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
@@ -168,11 +168,14 @@ class BaseDQNAgent(BaseAgent):
         self.is_test = False
         state, _ = self.env.reset()
 
+        score = 0
         update_count = 0
-        epsilons = []
+        episode_length = 0
+        
         losses = []
         scores = []
-        score = 0
+        epsilons = []
+        episode_lengths = []
 
         for frame_idx in range(num_frames):
             action = self.select_action(state)
@@ -180,12 +183,15 @@ class BaseDQNAgent(BaseAgent):
 
             state = next_state
             score += reward
+            episode_length += 1
 
             if done:
                 # The episode has ended.
                 state, _ = self.env.reset()
                 scores.append(score)
+                episode_lengths.append(episode_length)
                 score = 0
+                episode_length = 0
 
             if len(self.memory) >= self.batch_size:
                 # Training is ready once the replay buffer contains enough transition samples.
@@ -207,11 +213,11 @@ class BaseDQNAgent(BaseAgent):
                     self._target_hard_update()
 
             if (frame_idx + 1) % plotting_interval == 0:
-                self._plot(frame_idx + 1, scores, losses, epsilons)
+                self._plot(frame_idx + 1, episode_lengths, losses, epsilons)
 
         self.env.close()
 
-        return (scores, losses, epsilons)
+        return (episode_lengths, losses, epsilons)
 
     def test(self, num_episodes: int, render: bool = True, time_interval: float = 0.2) -> Tuple[List, List]:
         self.is_test = True
@@ -236,8 +242,9 @@ class BaseDQNAgent(BaseAgent):
                     continue
 
                 clear_output(True)
-                plt.imshow(self.env.render())
-                plt.show()
+                # plt.imshow(self.env.render())
+                # plt.show()
+                self.env.render()
                 time.sleep(time_interval)
 
             undiscounted_rewards.append(episode_reward)
@@ -346,10 +353,13 @@ class MlpDQNAgent(BaseDQNAgent):
 
         # Networks: DQN behaviour network, DQN target network
         self.obs_dim = np.prod(self.obs_shape)
-        self.dqn = Network(self.obs_dim, self.action_dim).to(self.device)
-        self.dqn_target = Network(self.obs_dim, self.action_dim).to(self.device)
+        self.dqn = DeeperNetwork(self.obs_dim, self.action_dim).to(self.device)
+        self.dqn_target = DeeperNetwork(self.obs_dim, self.action_dim).to(self.device)
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval()
+
+        print("Instantiating behavioural network...\n", self.dqn)
+        print("Instantiating target network...\n", self.dqn_target)
 
         # Optimiser
         self.optimiser = optim.Adam(self.dqn.parameters())
@@ -359,12 +369,14 @@ class MlpDQNAgent(BaseDQNAgent):
         Selects an action from the input state using an epsilon-greedy policy.
         """
         if not determinstic and np.random.random() < self.epsilon:
-            selected_action = self.env.action_space.sample().to_index()
+            selected_action = self.env.action_space.sample()
         else:
             flattened_state = state.flatten()
-            selected_action = self.dqn(
-                torch.FloatTensor(flattened_state).to(self.device)
-            ).argmax()
+            state_tensor = torch.FloatTensor(flattened_state)\
+                .unsqueeze(0)\
+                .to(self.device)
+            
+            selected_action = self.dqn(state_tensor).argmax()
             selected_action = selected_action.detach().cpu().numpy()
 
         if not self.is_test:
