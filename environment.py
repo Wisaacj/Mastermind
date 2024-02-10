@@ -5,6 +5,8 @@ from typing_extensions import Self
 from typing import Tuple, Dict, Deque
 from collections import deque
 
+# TODO: Implement `Mastermind` as a subclass of `gym.Env`
+
 
 class Code:
 
