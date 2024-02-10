@@ -6,24 +6,28 @@ from utils import plot_learning_curve
 
 
 if __name__ == "__main__":
-    env = gym.make("InvertedPendulum-v4", render_mode="human")
+    load_checkpoint = False
+
+    if load_checkpoint:
+        env = gym.make("InvertedPendulum-v4", render_mode="human")
+    else:
+        env = gym.make("InvertedPendulum-v4")
+
     agent = SoftActorCritic(
         input_dims=env.observation_space.shape,
         env=env,
         n_actions=env.action_space.shape[0]
     )
-    n_games = 250
+    n_games = 350
 
     filename = 'inverted_pendulum.png'
     figure_file = 'plots/' + filename
 
     best_score = env.reward_range[0]
     score_history = []
-    load_checkpoint = True
 
     if load_checkpoint:
         agent.load_models()
-        # env.render()
 
     for i in range(n_games):
         observation, _ = env.reset()
@@ -39,8 +43,6 @@ if __name__ == "__main__":
 
             if not load_checkpoint:
                 agent.learn()
-            else:
-                env.render()
 
             observation = obs_
 

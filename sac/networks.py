@@ -9,7 +9,30 @@ from torch.distributions.normal import Normal
 from typing import Tuple
 
 
-class CriticNetwork(nn.Module):
+class SavableNetwork(nn.Module):
+
+    def __init__(
+        self,
+        name: str,
+        chkpt_dir: str
+    ):
+        super().__init__()
+
+        if not os.path.exists(chkpt_dir):
+            os.mkdir(chkpt_dir)
+
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name)
+
+    def save_checkpoint(self):
+        T.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(T.load(self.checkpoint_file))
+
+
+class CriticNetwork(SavableNetwork):
 
     def __init__(
         self,
@@ -25,20 +48,13 @@ class CriticNetwork(nn.Module):
         
         :param beta: the learning rate.
         """
-        super().__init__()
+        super().__init__(name, chkpt_dir)
 
         self.beta = beta
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.name = name
-
-        if not os.path.exists(chkpt_dir):
-            os.mkdir(chkpt_dir)
-
-        self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name + '_sac')
 
         # Critic evaluate the value of a state and action pair.
         self.fc1 = nn.Linear(self.input_dims[0] + n_actions, self.fc1_dims)
@@ -61,15 +77,9 @@ class CriticNetwork(nn.Module):
         action_value = F.relu(action_value)
 
         return self.q(action_value)
-    
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
-
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
 
 
-class ValueNetwork(nn.Module):
+class ValueNetwork(SavableNetwork):
     """
     Value network just estimates the value of a particular state or set of states. It
     doesn't care which action you took or are taking.
@@ -84,19 +94,12 @@ class ValueNetwork(nn.Module):
         name: str = 'value',
         chkpt_dir: str = 'tmp/sac',
     ):
-        super().__init__()
+        super().__init__(name, chkpt_dir)
 
         self.beta = beta
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
-        self.name = name
-
-        if not os.path.exists(chkpt_dir):
-            os.mkdir(chkpt_dir)
-
-        self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name + '_sac')
 
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, fc2_dims)
@@ -115,15 +118,9 @@ class ValueNetwork(nn.Module):
         state_value = F.relu(state_value)
 
         return self.v(state_value)
-    
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
-
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
 
 
-class ActorNetwork(nn.Module):
+class ActorNetwork(SavableNetwork):
     """
     This network is arguably more complicated because you have to handle sampling
     a probability distribution instead of just sampling a feed-forward network.
@@ -148,7 +145,7 @@ class ActorNetwork(nn.Module):
             may very well have an action bound much greater than this. Thus, you want the
             output of the DNN of the sampling function to be multiplied by the max action.
         """
-        super().__init__()
+        super().__init__(name, chkpt_dir)
 
         self.alpha = alpha
         self.input_dims = input_dims
@@ -159,14 +156,6 @@ class ActorNetwork(nn.Module):
         # This serves a number of functions. Firstly, it makes sure we don't take the
         # log of 0, which is undefined.
         self.reparam_noise = 1e-6
-
-        self.name = name
-
-        if not os.path.exists(chkpt_dir):
-            os.mkdir(chkpt_dir)
-
-        self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name + '_sac')
 
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
@@ -207,26 +196,23 @@ class ActorNetwork(nn.Module):
 
         if reparameterise:
             # This adds some additional noise, i.e., some additional exploration factor
-            actions = probabilities.rsample()
+            x_t = probabilities.rsample()
         else:
-            actions = probabilities.sample()
+            x_t = probabilities.sample()
+
+        max_action = T.tensor(self.max_action).to(self.device)
 
         # Apply hyperbolic tan activation function.
-        action = T.tanh(actions) # .to(self.device)
+        y_t = T.tanh(x_t)
+        # Scale action.
+        action = y_t * max_action
 
         # This is for the calculation of our loss function. It isn't a component
         # of which action to take.
-        log_probs = probabilities.log_prob(actions)
-        log_probs -= T.log(1-action.pow(2)+self.reparam_noise)
+        log_probs = probabilities.log_prob(x_t)
+
+        # Enforcing action bound.
+        log_probs -= T.log(max_action * (1 - y_t.pow(2)) + self.reparam_noise)
         log_probs = log_probs.sum(1, keepdim=True)
 
-        # Scale action value.
-        action = action * T.tensor(self.max_action).to(self.device)
-        
         return action, log_probs
-    
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
-
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
