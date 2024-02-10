@@ -183,7 +183,8 @@ class ActorNetwork(SavableNetwork):
         # arbitrarily broad. The standard deviation defines the width of your distribution.
         # You could also use a sigmoid activation function here, but that is a little
         # slower in terms of computational speed and clamp is much faster.
-        sigma = T.clamp(sigma, min=self.reparam_noise, max=1)
+        sigma = T.clamp(sigma, min=-20, max=2)
+        # sigma = F.softplus(sigma) + self.reparam_noise
 
         return mu, sigma
     
@@ -192,6 +193,8 @@ class ActorNetwork(SavableNetwork):
         This method enables the actor-critic model to handle continuous action spaces.
         """
         mu, sigma = self.forward(state)
+        sigma = sigma.exp()
+
         probabilities = Normal(mu, sigma)
 
         if reparameterise:
@@ -212,7 +215,7 @@ class ActorNetwork(SavableNetwork):
         log_probs = probabilities.log_prob(x_t)
 
         # Enforcing action bound.
-        log_probs -= T.log(max_action * (1 - y_t.pow(2)) + self.reparam_noise)
+        log_probs -= T.log((1 - y_t.pow(2)) + self.reparam_noise)
         log_probs = log_probs.sum(1, keepdim=True)
 
         return action, log_probs
