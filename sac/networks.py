@@ -262,11 +262,11 @@ class DiscreteActorNetwork(SavableNetwork):
 
         return F.softmax(x, dim=-1)
 
-    def get_action(self, state):
+    def sample_discrete(self, state):
         action_probs = self.forward(state)
 
         dist = Categorical(action_probs)
-        action = dist.sample().to(self.device)
+        action = dist.sample()
 
         # Handle the situation of 0.0 probabilities because log(0) is undefined.
         # z = action_probs == 0.0

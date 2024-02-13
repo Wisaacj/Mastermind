@@ -2,6 +2,7 @@ import gymnasium as gym
 import numpy as np
 
 from sac.sac import SoftActorCritic
+from youtube_tutorial.policy_gradient.SAC.sac_torch import Agent
 from utils import plot_learning_curve
 
 

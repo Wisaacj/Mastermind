@@ -78,10 +78,10 @@ class SoftActorCritic:
 
         for name in value_state_dict:
             # Here, we mix the parameter values from the behavioural and target networks.
-            value_state_dict[name] = tau * value_state_dict[name].clone() + \
+            target_value_state_dict[name] = tau * value_state_dict[name].clone() + \
                 (1 - tau) * target_value_state_dict[name]
             
-        self.target_value.load_state_dict(value_state_dict)
+        self.target_value.load_state_dict(target_value_state_dict)
 
     def save_models(self):
         print('.... saving models ....')
@@ -219,9 +219,12 @@ class DiscreteSoftActorCritic:
     def choose_action(self, observation):
         # We apply `unsqueeze` to add a batch dimension.
         state = T.tensor(observation, dtype=T.float).unsqueeze(0).to(self.device)
-        actions, _ = self.actor.get_action(state)
+        # probabilities = self.actor(state)
+        # action = T.argmax(probabilities).item()
 
-        return actions.cpu().detach().numpy()[0]
+        action, _ = self.actor.sample_discrete(state)
+
+        return action.cpu().detach().numpy()[0]
     
     def remember(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
@@ -265,7 +268,7 @@ class DiscreteSoftActorCritic:
         done = T.tensor(done).to(self.device)
         state = T.tensor(state, dtype=T.float).to(self.device)
         new_state = T.tensor(new_state, dtype=T.float).to(self.device)
-        action = T.tensor(action, dtype=T.float).to(self.device)
+        action = T.tensor(action, dtype=T.int).to(self.device)
 
         # Predict the value of the states.
         value = self.value(state).view(-1)
@@ -275,7 +278,7 @@ class DiscreteSoftActorCritic:
         # Terminal states should be zero-valued.
         value_[done] = 0.0
 
-        actions, log_probs = self.actor.get_action(state)
+        actions, log_probs = self.actor.sample_discrete(state)
         actions = actions.unsqueeze(1)
         log_probs = log_probs.view(-1)
 
@@ -297,17 +300,16 @@ class DiscreteSoftActorCritic:
         self.value.optimiser.step()
 
         # Backpropagate actor network loss.
-        # actions, log_probs = self.actor.get_action(state)
-        # actions = actions.unsqueeze(1)
-        # log_probs = log_probs.view(-1)
+        actions, log_probs = self.actor.sample_discrete(state)
+        actions = actions.unsqueeze(1)
+        log_probs = log_probs.view(-1)
 
         q1_new_policy = self.critic_1.forward(state, actions)
         q2_new_policy = self.critic_2.forward(state, actions)
         critic_value = T.min(q1_new_policy, q2_new_policy)
         critic_value = critic_value.view(-1)
 
-        actor_loss = log_probs - critic_value
-        actor_loss = T.mean(actor_loss)
+        actor_loss = -(log_probs - critic_value).mean()
         self.actor.optimiser.zero_grad()
         actor_loss.backward(retain_graph=True)
         self.actor.optimiser.step()
