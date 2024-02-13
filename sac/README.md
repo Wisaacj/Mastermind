@@ -15,3 +15,7 @@ The value network takes a state as an input
 - And outputs a value indicating whether the state is valuable or not
 
 The interplay of the three networks produces an agent that predicts the best sequence of actions to take over time.
+
+## Questions
+Does the process of sampling actions from a probability distribution over actions categorise an MDP as a stochastic MDP? 
+- Stochastic policy?

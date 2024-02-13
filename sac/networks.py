@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from torch.distributions.normal import Normal
+from torch.distributions.categorical import Categorical
 from typing import Tuple
 
 
@@ -217,5 +218,61 @@ class ActorNetwork(SavableNetwork):
         # Enforcing action bound.
         log_probs -= T.log((1 - y_t.pow(2)) + self.reparam_noise)
         log_probs = log_probs.sum(1, keepdim=True)
+
+        return action, log_probs
+    
+
+class DiscreteActorNetwork(SavableNetwork):
+
+    def __init__(
+        self,
+        alpha: float,
+        input_dims: Tuple,
+        n_actions: int,
+        fc1_dims: int = 256,
+        fc2_dims: int = 256,
+        name: str = 'discrete_actor',
+        chkpt_dir: str = 'tmp/sac'
+    ):
+        super().__init__(name, chkpt_dir)
+
+        self.alpha = alpha
+        self.input_dims = input_dims
+        self.n_actions = n_actions
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+
+        self.fc1 = nn.Linear(*input_dims, fc1_dims)
+        self.fc2 = nn.Linear(fc1_dims, fc2_dims)
+        self.pi = nn.Linear(fc2_dims, n_actions)
+
+        self.optimiser = optim.Adam(self.parameters(), lr=alpha)
+        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+
+    def forward(self, state):
+        x = self.fc1(state)
+        x = F.relu(x)
+
+        x = self.fc2(x)
+        x = F.relu(x)
+
+        x = self.pi(x)
+
+        return F.softmax(x, dim=-1)
+
+    def get_action(self, state):
+        action_probs = self.forward(state)
+
+        dist = Categorical(action_probs)
+        action = dist.sample().to(self.device)
+
+        # Handle the situation of 0.0 probabilities because log(0) is undefined.
+        # z = action_probs == 0.0
+        # z = z.float() * 1e-8
+
+        log_probs = dist.log_prob(action)
+        # log_probs = log_probs.sum(1, keepdim=True)
 
         return action, log_probs
