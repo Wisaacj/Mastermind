@@ -15,7 +15,8 @@ class SavableNetwork(nn.Module):
     def __init__(
         self,
         name: str,
-        chkpt_dir: str
+        chkpt_dir: str,
+        seed: int,
     ):
         super().__init__()
 
@@ -23,6 +24,7 @@ class SavableNetwork(nn.Module):
             os.mkdir(chkpt_dir)
 
         self.name = name
+        self.seed = T.manual_seed(seed)
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name)
 
@@ -43,13 +45,14 @@ class CriticNetwork(SavableNetwork):
         fc1_dims: int = 256, 
         fc2_dims: int = 256,
         name: str = 'critic',
-        chkpt_dir: str = 'tmp/sac'
+        chkpt_dir: str = 'tmp/sac',
+        seed: int = 42,
     ):
         """
         
         :param beta: the learning rate.
         """
-        super().__init__(name, chkpt_dir)
+        super().__init__(name, chkpt_dir, seed)
 
         self.beta = beta
         self.input_dims = input_dims
@@ -222,57 +225,117 @@ class ActorNetwork(SavableNetwork):
         return action, log_probs
     
 
+def hidden_init(layer: nn.Linear):
+    fan_in = layer.weight.data.size()[0]
+    lim = 1. / np.sqrt(fan_in)
+    return (-lim, lim)
+    
+
+class DiscreteCriticNetwork(SavableNetwork):
+
+    def __init__(
+        self,
+        learning_rate: float, 
+        state_size: int, 
+        action_size: int, 
+        fc1_dims: int = 256, 
+        fc2_dims: int = 256,
+        name: str = 'critic',
+        chkpt_dir: str = 'tmp/sac',
+        seed: int = 1,
+    ):
+        super().__init__(name, chkpt_dir, seed)
+
+        self.learning_rate = learning_rate
+        self.state_size = state_size
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.action_size = action_size
+
+        # Critics evaluate the value of a state.
+        self.fc1 = nn.Linear(state_size, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+
+        # Output is a scalar quantity.
+        self.q = nn.Linear(self.fc2_dims, action_size)
+        self.reset_parameters()
+
+        self.optimiser = optim.Adam(self.parameters(), lr=learning_rate)
+        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+
+    def reset_parameters(self):
+        self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
+        self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
+        self.q.weight.data.uniform_(-3e-3, 3e-3)
+
+    def forward(self, state):
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+
+        return self.q(x)
+    
+
 class DiscreteActorNetwork(SavableNetwork):
 
     def __init__(
         self,
-        alpha: float,
-        input_dims: Tuple,
-        n_actions: int,
+        learning_rate: float,
+        state_size: int,
+        action_size: int,
         fc1_dims: int = 256,
         fc2_dims: int = 256,
         name: str = 'discrete_actor',
-        chkpt_dir: str = 'tmp/sac'
+        chkpt_dir: str = 'tmp/sac',
+        seed: int = 1,
     ):
-        super().__init__(name, chkpt_dir)
+        super().__init__(name, chkpt_dir, seed)
 
-        self.alpha = alpha
-        self.input_dims = input_dims
-        self.n_actions = n_actions
+        self.learning_rate = learning_rate
+        self.state_size = state_size
+        self.action_size = action_size
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
 
-        self.fc1 = nn.Linear(*input_dims, fc1_dims)
+        self.fc1 = nn.Linear(state_size, fc1_dims)
         self.fc2 = nn.Linear(fc1_dims, fc2_dims)
-        self.pi = nn.Linear(fc2_dims, n_actions)
+        self.fc3 = nn.Linear(fc2_dims, action_size)
+        self.softmax = nn.Softmax(dim=-1)
 
-        self.optimiser = optim.Adam(self.parameters(), lr=alpha)
+        self.optimiser = optim.Adam(self.parameters(), lr=learning_rate)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 
         self.to(self.device)
 
     def forward(self, state):
-        x = self.fc1(state)
-        x = F.relu(x)
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
 
-        x = self.fc2(x)
-        x = F.relu(x)
-
-        x = self.pi(x)
-
-        return F.softmax(x, dim=-1)
-
-    def sample_discrete(self, state):
+        action_probs = self.softmax(self.fc3(x))
+        return action_probs
+    
+    def evaluate(self, state):
         action_probs = self.forward(state)
 
         dist = Categorical(action_probs)
-        action = dist.sample()
+        action = dist.sample().to(self.device)
 
-        # Handle the situation of 0.0 probabilities because log(0) is undefined.
-        # z = action_probs == 0.0
-        # z = z.float() * 1e-8
+        # We have to deal with the situation of 0.0 probabilities because log(0) is
+        # undefined.
+        z = action_probs == 0.0
+        z = z.float() * 1e-8
+        log_action_probs = T.log(action_probs + z)
 
-        log_probs = dist.log_prob(action)
-        # log_probs = log_probs.sum(1, keepdim=True)
+        return action.detach().cpu(), action_probs, log_action_probs
+    
+    def get_action(self, state):
+        return self.evaluate(state)
 
-        return action, log_probs
+    def get_det_action(self, state):
+        action_probs = self.forward(state)
+
+        dist = Categorical(action_probs)
+        action = dist.sample().to(self.device)
+
+        return action.detach().cpu()
