@@ -5,12 +5,12 @@ from typing import Tuple, Dict
 
 class ReplayBuffer:
 
-    def __init__(self, max_size: int, input_shape: Tuple, action_shape: Tuple):
+    def __init__(self, max_size: int, state_shape: Tuple, action_shape: Tuple):
         self.mem_size = max_size
         self.mem_cntr = 0
 
-        self.state_memory = np.zeros((self.mem_size, *input_shape))
-        self.new_state_memory = np.zeros((self.mem_size, *input_shape))
+        self.state_memory = np.zeros((self.mem_size, *state_shape))
+        self.new_state_memory = np.zeros((self.mem_size, *state_shape))
         self.action_memory = np.zeros((self.mem_size, *action_shape))
         self.reward_memory = np.zeros(self.mem_size)
         # Reason we have this is becasue the value for the terminal state is identically

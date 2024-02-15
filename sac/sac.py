@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
 import torch.optim as optim
+import gymnasium as gym
 
 from typing import Tuple
 from torch.nn.utils import clip_grad_norm_
@@ -177,12 +178,22 @@ class SoftActorCritic:
         self.update_network_parameters()
 
 
-class SACDiscrete(nn.Module):
+class DiscreteSoftActorCritic(nn.Module):
     """Interacts with and learns from the environment."""
     
     def __init__(self,
-        state_size: int,
-        action_size: int,
+        state_shape: Tuple,
+        action_shape: Tuple,
+        n_actions: int,
+        env: gym.Env,
+        warmup_steps: int,
+        tau: float = 1e-2,
+        gamma: float = 0.99,
+        learning_rate: float = 5e-4,
+        clip_grad_param: float = 1,
+        mem_size: int = 1_000_000,
+        batch_size: int = 256,
+        seed: int = 1,
     ):
         """Initialize an Agent object.
         
@@ -193,64 +204,63 @@ class SACDiscrete(nn.Module):
             random_seed (int): random seed
         """
         super().__init__()
-        self.state_size = state_size
-        self.action_size = action_size
-
-        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         
-        # TODO: Make these input parameters.
-        self.gamma = 0.99
-        self.tau = 1e-2
-        hidden_size = 256
-        learning_rate = 5e-4
-        self.clip_grad_param = 1
+        self.env = env
+        self.tau = tau
+        self.gamma = gamma
+        self.learning_rate = learning_rate
+        self.clip_grad_param = clip_grad_param
+        self.state_shape = state_shape
+        self.action_shape = action_shape
+        self.state_size = np.prod(state_shape)
+        self.n_actions = n_actions
+        
+        self.batch_size = batch_size
+        self.memory = ReplayBuffer(mem_size, state_shape, action_shape)
+        self._collect_random_experience(warmup_steps)
 
-        self.target_entropy = -action_size  # -dim(A)
+        # Target entropy is -dim(Action Space)
+        self.target_entropy = -self.n_actions
 
         self.log_alpha = T.tensor([0.0], requires_grad=True)
         self.alpha = self.log_alpha.exp().detach()
-        self.alpha_optimizer = optim.Adam(params=[self.log_alpha], lr=learning_rate) 
+        self.alpha_optimizer = optim.Adam(params=[self.log_alpha], lr=learning_rate)
+        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
                 
-        # Actor Network 
+        # Actor network 
         self.actor_local = DiscreteActorNetwork(
-            learning_rate, state_size, action_size, hidden_size).to(self.device)
+            learning_rate, self.state_size, self.n_actions).to(self.device)
         
-        # Critic Network (w/ Target Network)
+        # Behavioural critic networks
         self.critic1 = DiscreteCriticNetwork(
-            learning_rate, state_size, action_size, hidden_size, seed=2).to(self.device)
+            learning_rate, self.state_size, self.n_actions, seed=seed+1).to(self.device)
         self.critic2 = DiscreteCriticNetwork(
-            learning_rate, state_size, action_size, hidden_size, seed=1).to(self.device)
+            learning_rate, self.state_size, self.n_actions, seed=seed).to(self.device)
         
         assert self.critic1.parameters() != self.critic2.parameters()
         
+        # Target critic networks
         self.critic1_target = DiscreteCriticNetwork(
-            learning_rate, state_size, action_size, hidden_size, seed=1).to(self.device)
+            learning_rate, self.state_size, self.n_actions, seed=seed).to(self.device)
         self.critic1_target.load_state_dict(self.critic1.state_dict())
-        # NOTE: We might need to call self.critic1_target.eval()
 
         self.critic2_target = DiscreteCriticNetwork(
-            learning_rate, state_size, action_size, hidden_size, seed=1).to(self.device)
+            learning_rate, self.state_size, self.n_actions, seed=seed).to(self.device)
         self.critic2_target.load_state_dict(self.critic2.state_dict())
+
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state, action, reward, new_state, done)
     
-    def get_action(self, state):
+    def get_action(self, state: T.Tensor):
         """Returns actions for given state as per current policy."""
         state = T.from_numpy(state).float().to(self.device)
         
         with T.no_grad():
             action = self.actor_local.get_det_action(state)
+
         return action.numpy()
-
-    def calc_policy_loss(self, states, alpha):
-        _, action_probs, log_pis = self.actor_local.evaluate(states)
-
-        q1 = self.critic1(states)   
-        q2 = self.critic2(states)
-        min_Q = T.min(q1,q2)
-        actor_loss = (action_probs * (alpha * log_pis - min_Q )).sum(1).mean()
-        log_action_pi = T.sum(log_pis * action_probs, dim=1)
-        return actor_loss, log_action_pi
     
-    def learn(self, step, experiences, gamma, d=1):
+    def learn(self):
         """Updates actor, critics and entropy_alpha parameters using given batch of experience tuples.
         Q_targets = r + γ * (min_critic_target(next_state, actor_target(next_state)) - α *log_pi(next_action|next_state))
         Critic_loss = MSE(Q, Q_target)
@@ -263,7 +273,7 @@ class SACDiscrete(nn.Module):
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
+        states, actions, rewards, next_states, dones = self.memory.sample_buffer(self.batch_size)
 
         states = T.from_numpy(states).float().to(self.device)
         actions = T.from_numpy(actions).float().to(self.device)
@@ -273,7 +283,7 @@ class SACDiscrete(nn.Module):
 
         # ---------------------------- update actor ---------------------------- #
         current_alpha = copy.deepcopy(self.alpha)
-        actor_loss, log_pis = self.calc_policy_loss(states, current_alpha.to(self.device))
+        actor_loss, log_pis = self._calc_policy_loss(states, current_alpha.to(self.device))
         self.actor_local.optimiser.zero_grad()
         actor_loss.backward()
         self.actor_local.optimiser.step()
@@ -294,7 +304,7 @@ class SACDiscrete(nn.Module):
             Q_target_next = action_probs * (T.min(Q_target1_next, Q_target2_next) - self.alpha.to(self.device) * log_pis)
 
             # Compute Q targets for current states (y_i)
-            Q_targets = rewards + (gamma * (1 - dones) * Q_target_next.sum(dim=1).unsqueeze(-1)) 
+            Q_targets = rewards + (self.gamma * (1 - dones) * Q_target_next.sum(dim=1).unsqueeze(-1)) 
 
         # Compute critic loss
         q1 = self.critic1(states).gather(1, actions.long())
@@ -316,12 +326,12 @@ class SACDiscrete(nn.Module):
         self.critic2.optimiser.step()
 
         # ----------------------- update target networks ----------------------- #
-        self.soft_update(self.critic1, self.critic1_target)
-        self.soft_update(self.critic2, self.critic2_target)
+        self._soft_update(self.critic1, self.critic1_target)
+        self._soft_update(self.critic2, self.critic2_target)
         
         return actor_loss.item(), alpha_loss.item(), critic1_loss.item(), critic2_loss.item(), current_alpha
 
-    def soft_update(self, local_model, target_model):
+    def _soft_update(self, local_model: nn.Module, target_model: nn.Module):
         """Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
         Params
@@ -333,8 +343,30 @@ class SACDiscrete(nn.Module):
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(self.tau*local_param.data + (1.0-self.tau)*target_param.data)
 
+    def _calc_policy_loss(self, states, alpha):
+        _, action_probs, log_pis = self.actor_local.evaluate(states)
 
-class DiscreteSoftActorCritic:
+        q1 = self.critic1(states)   
+        q2 = self.critic2(states)
+        min_Q = T.min(q1,q2)
+        actor_loss = (action_probs * (alpha * log_pis - min_Q )).sum(1).mean()
+        log_action_pi = T.sum(log_pis * action_probs, dim=1)
+        return actor_loss, log_action_pi
+    
+    def _collect_random_experience(self, num_samples: int):
+        state, _ = self.env.reset()
+
+        for _ in range(num_samples):
+            action = self.env.action_space.sample()
+            next_state, reward, done, truncated, _ = self.env.step(action)
+            self.remember(state, action, reward, next_state, done or truncated)
+            state = next_state
+
+            if done or truncated:
+                state, _ = self.env.reset()
+
+
+class LegDiscreteSoftActorCritic:
 
     def __init__(
         self,
