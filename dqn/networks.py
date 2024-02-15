@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from typing import Tuple
 
-from layers import NoisyLinear
+from dqn.layers import NoisyLinear
 
 
 class Network(nn.Module):

@@ -4,7 +4,7 @@ import numpy as np
 from collections import deque
 from typing import Dict, Tuple, List
 
-from trees import SumSegmentTree, MinSegmentTree
+from dqn.trees import SumSegmentTree, MinSegmentTree
 
 
 class ReplayBuffer:

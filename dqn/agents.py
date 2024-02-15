@@ -14,8 +14,8 @@ from torch.nn.utils import clip_grad_norm_
 from IPython.display import clear_output
 from abc import abstractmethod, ABC
 
-from buffers import ReplayBuffer, NStepReplayBuffer, PrioritisedReplayBuffer
-from networks import *
+from dqn.buffers import ReplayBuffer, NStepReplayBuffer, PrioritisedReplayBuffer
+from dqn.networks import *
 
 
 class BaseAgent(ABC):
@@ -213,7 +213,7 @@ class BaseDQNAgent(BaseAgent):
                     self._target_hard_update()
 
             if (frame_idx + 1) % plotting_interval == 0:
-                self._plot(frame_idx + 1, episode_lengths, losses, epsilons)
+                self._plot(frame_idx + 1, scores, losses, epsilons)
 
         self.env.close()
 
@@ -249,6 +249,8 @@ class BaseDQNAgent(BaseAgent):
 
             undiscounted_rewards.append(episode_reward)
             episode_lengths.append(episode_length)
+
+        self.env.close()
 
         return episode_lengths, undiscounted_rewards
     
@@ -338,6 +340,7 @@ class MlpDQNAgent(BaseDQNAgent):
         max_epsilon: float = 1.0,
         min_epsilon: float = 0.1,
         gamma: float = 0.99,
+        learning_rate: float = 0.0003,
     ):
         super().__init__(
             env, 
@@ -359,7 +362,7 @@ class MlpDQNAgent(BaseDQNAgent):
         self.dqn_target.eval()
 
         # Optimiser
-        self.optimiser = optim.Adam(self.dqn.parameters())
+        self.optimiser = optim.Adam(self.dqn.parameters(), lr=learning_rate)
 
     def select_action(self, state: np.ndarray, determinstic: bool = False) -> np.ndarray:
         """
@@ -983,7 +986,7 @@ class RainbowDQNAgent(MlpDQNAgent):
         flattened_state = state.flatten()
 
         selected_action = self.dqn(
-            torch.Tensor(flattened_state).to(self.device)
+            torch.Tensor(flattened_state).unsqueeze(0).to(self.device)
         ).argmax()
         selected_action = selected_action.detach().cpu().numpy()
 
