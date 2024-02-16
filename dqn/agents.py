@@ -98,6 +98,7 @@ class BaseDQNAgent(BaseAgent):
         memory_size: int,
         batch_size: int,
         target_update: int,
+        warmup_steps: int,
         epsilon_decay: float = 1e-4,
         seed: int = 42,
         max_epsilon: float = 1.0,
@@ -134,6 +135,9 @@ class BaseDQNAgent(BaseAgent):
         self.memory = ReplayBuffer(self.obs_shape, memory_size, batch_size)
         # The next transition to store in memory.
         self.transition = list()
+
+        # Collect random samples as warm-up steps.
+        self._collect_random_experience(warmup_steps)
 
         self._init_seed(seed)
     
@@ -217,7 +221,7 @@ class BaseDQNAgent(BaseAgent):
 
         self.env.close()
 
-        return (episode_lengths, losses, epsilons)
+        return (scores, losses, epsilons)
 
     def test(self, num_episodes: int, render: bool = True, time_interval: float = 0.2) -> Tuple[List, List]:
         self.is_test = True
@@ -296,6 +300,18 @@ class BaseDQNAgent(BaseAgent):
         """
         self.dqn_target.load_state_dict(self.dqn.state_dict())
 
+    def _collect_random_experience(self, num_samples: int):
+        state, _ = self.env.reset()
+
+        for _ in range(num_samples):
+            action = self.env.action_space.sample()
+            next_state, reward, done, truncated, _ = self.env.step(action)
+            self.memory.store(state, action, reward, next_state, done or truncated)
+            state = next_state
+
+            if done or truncated:
+                state, _ = self.env.reset()
+
     def _plot(
         self, 
         frame_idx: int, 
@@ -335,6 +351,7 @@ class MlpDQNAgent(BaseDQNAgent):
         memory_size: int,
         batch_size: int,
         target_update: int,
+        warmup_steps: int,
         epsilon_decay: float = 1e-4,
         seed: int = 42,
         max_epsilon: float = 1.0,
@@ -346,7 +363,8 @@ class MlpDQNAgent(BaseDQNAgent):
             env, 
             memory_size, 
             batch_size, 
-            target_update, 
+            target_update,
+            warmup_steps,
             epsilon_decay, 
             seed, 
             max_epsilon, 
@@ -356,8 +374,8 @@ class MlpDQNAgent(BaseDQNAgent):
 
         # Networks: DQN behaviour network, DQN target network
         self.obs_dim = np.prod(self.obs_shape)
-        self.dqn = DeeperNetwork(self.obs_dim, self.action_dim).to(self.device)
-        self.dqn_target = DeeperNetwork(self.obs_dim, self.action_dim).to(self.device)
+        self.dqn = Network(self.obs_dim, self.action_dim).to(self.device)
+        self.dqn_target = Network(self.obs_dim, self.action_dim).to(self.device)
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval()
 
@@ -921,6 +939,7 @@ class RainbowDQNAgent(MlpDQNAgent):
         memory_size: int,
         batch_size: int,
         target_update: int,
+        warmup_steps: int,
         seed: int = 42,
         gamma = 0.99,
         # Priortised Experience Replay Params
@@ -939,6 +958,7 @@ class RainbowDQNAgent(MlpDQNAgent):
             memory_size,
             batch_size,
             target_update,
+            warmup_steps,
             seed=seed,
             gamma=gamma,
         )

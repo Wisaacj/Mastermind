@@ -19,11 +19,11 @@ class Network(nn.Module):
         super().__init__()
 
         self.layers = nn.Sequential(
-            nn.Linear(in_dim, 128),
+            nn.Linear(in_dim, 256),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(256, 256),
             nn.ReLU(),
-            nn.Linear(128, out_dim)
+            nn.Linear(256, out_dim)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
