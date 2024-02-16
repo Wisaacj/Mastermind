@@ -178,6 +178,7 @@ class Mastermind:
         self.history_length = history_length
         self.configure_codes(code_length, num_colours)
 
+        self.reward_range = [-max_attempts, 1]
         self.reset(seed)
 
     def reset(self, seed: int = None) -> Tuple[np.ndarray, Dict]:

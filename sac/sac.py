@@ -251,9 +251,9 @@ class DiscreteSoftActorCritic(nn.Module):
     def remember(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
     
-    def get_action(self, state: T.Tensor):
+    def get_action(self, state: np.ndarray):
         """Returns actions for given state as per current policy."""
-        state = T.from_numpy(state).float().to(self.device)
+        state = T.from_numpy(state.flatten()).float().to(self.device)
         
         with T.no_grad():
             action = self.actor_local.get_det_action(state)
@@ -275,11 +275,11 @@ class DiscreteSoftActorCritic(nn.Module):
         """
         states, actions, rewards, next_states, dones = self.memory.sample_buffer(self.batch_size)
 
-        states = T.from_numpy(states).float().to(self.device)
         actions = T.from_numpy(actions).float().to(self.device)
         rewards = T.from_numpy(rewards).float().unsqueeze(1).to(self.device)
-        next_states = T.from_numpy(next_states).float().to(self.device)
         dones = T.from_numpy(dones.astype(np.uint8)).float().unsqueeze(1).to(self.device)
+        states = T.from_numpy(states.reshape((self.batch_size, -1))).float().to(self.device)
+        next_states = T.from_numpy(next_states.reshape((self.batch_size, -1))).float().to(self.device)
 
         # ---------------------------- update actor ---------------------------- #
         current_alpha = copy.deepcopy(self.alpha)
