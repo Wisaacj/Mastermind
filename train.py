@@ -11,16 +11,16 @@ from environment import Mastermind
 
 
 def main():
-    n_episodes = 750
+    n_episodes = 5000
     seed = 1
-    warmup_steps = 10_000
+    warmup_steps = 250_000
     load_checkpoint = False
 
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)
 
-    env = gym.make("CartPole-v1")
+    env = Mastermind(code_length=4, num_colours=3, history_length=5)
     # env = Mastermind(code_length=3, num_colours=3)
     env.action_space.seed(seed)
 
@@ -35,8 +35,8 @@ def main():
         tau=0.005
     )
 
-    filename = 'cartpole_2500.png'
-    figure_file = 'plots/' + filename
+    filename = 'sac_4_3_ext.png'
+    figure_file = 'plots/mastermind/' + filename
 
     best_score = env.reward_range[0]
     score_history = []
@@ -71,7 +71,7 @@ def main():
         plot_learning_curve(x, score_history, figure_file)
 
     # Save results to disk as a csv file.
-    pd.DataFrame({"SAC": score_history}).to_csv("./results/cartpole/sac2.csv")
+    pd.DataFrame({"SAC": score_history}).to_csv("./results/mastermind/sac_4_3_ext.csv")
 
 
 if __name__ == "__main__":
